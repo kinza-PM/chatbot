@@ -1,0 +1,29 @@
+{
+  "name": "al-rais-chatbot",
+  "version": "1.0.0",
+  "description": "Al-Rais Travel Booking Chatbot with OpenAI",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "serverless offline",
+    "deploy": "serverless deploy",
+    "remove": "serverless remove",
+    "lint": "eslint . --ext .js",
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "serverless-offline": "^13.9.0",
+    "serverless-ssm-fetch": "^2.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.858.0",
+    "ioredis": "^5.8.2",
+    "openai": "^4.85.0",
+    "serverless": "^3.40.0",
+    "serverless-dotenv-plugin": "^6.0.0",
+    "uuid": "^11.1.0"
+  }
+}

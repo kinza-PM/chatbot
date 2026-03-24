@@ -1,0 +1,154 @@
+service: al-rais-chatbot
+frameworkVersion: "3"
+
+custom:
+  serverlessSsmFetch:
+    COGNITO_CLIENT_ID: /provesio/cognitouserid~true
+    COGNITO_USERPOOL_ID: /provesio/cognitouserpoolid~true
+    OPENAI_API_KEY: /provesio/openaiApiKey~true
+    MAIN_ENDPOINT: /provesio/mainEndpoint
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: eu-west-1
+  stage: ${opt:stage, 'dev'}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:GetItem
+            - dynamodb:Query
+            - dynamodb:DeleteItem
+          Resource:
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
+
+  environment:
+    STAGE: ${self:provider.stage}
+    COGNITO_CLIENT_ID: ${self:custom.serverlessSsmFetch.COGNITO_CLIENT_ID}
+    COGNITO_USERPOOL_ID: ${self:custom.serverlessSsmFetch.COGNITO_USERPOOL_ID}
+    COGNITO_REGION: "eu-west-1"
+    OPENAI_API_KEY: ${self:custom.serverlessSsmFetch.OPENAI_API_KEY}
+    OPENAI_MODEL: "gpt-4o"
+    CONVERSATIONS_TABLE: chat-conversations-${self:provider.stage}
+    MAIN_ENDPOINT: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
+    FLIGHT_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
+    HOTEL_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
+    TRANSPORT_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
+    SUPPORT_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
+
+package:
+  patterns:
+    - '!./**'
+    - handlers/**
+    - helper/**
+    - lib/**
+    - package.json
+    - package-lock.json
+    - node_modules/**
+    - '!node_modules/aws-sdk/**'
+    - '!node_modules/**/test/**'
+    - '!node_modules/**/tests/**'
+    - '!node_modules/**/docs/**'
+    - '!node_modules/**/examples/**'
+    - '!node_modules/**/*.md'
+    - '!node_modules/**/*.ts'
+    - '!node_modules/**/*.map'
+  excludeDevDependencies: true
+
+functions:
+  # Main Chat Endpoint
+  chat:
+    handler: handlers/chat.handler
+    timeout: 60
+    memorySize: 512
+    events:
+      - http:
+          path: /chat
+          method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  # Get Chat History / List Conversations
+  getChatHistory:
+    handler: handlers/getChatHistory.handler
+    timeout: 30
+    memorySize: 512
+    events:
+      - http:
+          path: /chat/history
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  # Delete Conversation
+  deleteConversation:
+    handler: handlers/deleteConversation.handler
+    timeout: 30
+    memorySize: 512
+    events:
+      - http:
+          path: /chat/{conversationId}
+          method: delete
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+resources:
+  Resources:
+
+    ###########################
+    ### DynamoDB Tables
+    ###########################
+    ChatConversationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: chat-conversations-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: conversationId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: updatedAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: conversationId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: updatedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+plugins:
+  - serverless-ssm-fetch
