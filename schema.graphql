@@ -1,0 +1,64 @@
+type Query {
+  getConversation(conversationId: ID!): Conversation
+  listConversationsByUser(userId: ID!, limit: Int, nextToken: String): ConversationConnection
+  getMessage(messageId: ID!): Message
+}
+
+type Mutation {
+  sendMessage(input: SendMessageInput!): Message
+  updateConversationStatus(conversationId: ID!, status: String!): Conversation
+  createTicketFromConversation(conversationId: ID!, category: String!, subcategory: String!): TicketResponse
+}
+
+type Subscription {
+  onMessageReceived(conversationId: ID!): Message
+    @aws_subscribe(rules: [{ allow: public }])
+  onConversationUpdated(conversationId: ID!): Conversation
+    @aws_subscribe(rules: [{ allow: public }])
+}
+
+type Message {
+  id: ID!
+  conversationId: ID!
+  sender: String!
+  text: String!
+  timestamp: AWSDateTime!
+  status: String
+}
+
+type Conversation {
+  conversationId: ID!
+  userId: String
+  email: String!
+  name: String!
+  phone: String!
+  category: String
+  subcategory: String
+  messages: [Message!]!
+  ticketId: String
+  status: String!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type ConversationConnection {
+  items: [Conversation!]!
+  nextToken: String
+}
+
+type TicketResponse {
+  success: Boolean!
+  ticketId: String
+  message: String!
+}
+
+input SendMessageInput {
+  conversationId: ID!
+  message: String!
+  sender: String!
+}
+
+input UpdateConversationInput {
+  conversationId: ID!
+  status: String!
+}

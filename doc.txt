@@ -6,3 +6,5 @@ aws ssm put-parameter --name /provesio/openaiApiKey --value "sk-your-key" --type
 cd chatbot && npm install
 
 serverless deploy --config .\serverless-dev.yaml
+
+

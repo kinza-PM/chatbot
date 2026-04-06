@@ -1,0 +1,17 @@
+{
+  "version": "2017-02-28",
+  "operation": "UpdateItem",
+  "key": {
+    "conversationId": $util.dynamodb.toDynamoDBJson($input.conversationId)
+  },
+  "update": {
+    "expression": "SET #status = :status, updatedAt = :updatedAt",
+    "expressionNames": {
+      "#status": "status"
+    },
+    "expressionValues": {
+      ":status": $util.dynamodb.toDynamoDBJson($input.status),
+      ":updatedAt": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601())
+    }
+  }
+}

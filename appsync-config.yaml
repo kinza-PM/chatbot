@@ -1,0 +1,253 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS AppSync API for real-time support chat
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+
+Resources:
+  # AppSync API
+  SupportChatAPI:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: !Sub 'support-chat-api-${Environment}'
+      AuthenticationType: API_KEY
+      ApiKeyConfig:
+        Description: API Key for support chat
+        Expires: 2147483647
+      LogConfig:
+        CloudWatchLogsRoleArn: !GetAtt AppSyncLogsRole.Arn
+        FieldLogLevel: ERROR
+
+  # CloudWatch Logs Role for AppSync
+  AppSyncLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  # GraphQL Schema
+  GraphQLSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt SupportChatAPI.ApiId
+      Definition: |
+        type Query {
+          getConversation(conversationId: ID!): Conversation
+          listConversationsByUser(userId: ID!, limit: Int, nextToken: String): ConversationConnection
+          getMessage(messageId: ID!): Message
+        }
+
+        type Mutation {
+          sendMessage(input: SendMessageInput!): Message
+          updateConversationStatus(conversationId: ID!, status: String!): Conversation
+          createTicketFromConversation(conversationId: ID!, category: String!, subcategory: String!): TicketResponse
+        }
+
+        type Subscription {
+          onMessageReceived(conversationId: ID!): Message
+            @aws_subscribe(rules: [{ allow: public }])
+          onConversationUpdated(conversationId: ID!): Conversation
+            @aws_subscribe(rules: [{ allow: public }])
+        }
+
+        type Message {
+          id: ID!
+          conversationId: ID!
+          sender: String!
+          text: String!
+          timestamp: AWSDateTime!
+          status: String
+        }
+
+        type Conversation {
+          conversationId: ID!
+          userId: String
+          email: String!
+          name: String!
+          phone: String!
+          category: String
+          subcategory: String
+          messages: [Message!]!
+          ticketId: String
+          status: String!
+          createdAt: AWSDateTime!
+          updatedAt: AWSDateTime!
+        }
+
+        type ConversationConnection {
+          items: [Conversation!]!
+          nextToken: String
+        }
+
+        type TicketResponse {
+          success: Boolean!
+          ticketId: String
+          message: String!
+        }
+
+        input SendMessageInput {
+          conversationId: ID!
+          message: String!
+          sender: String!
+        }
+
+  # DynamoDB Data Source
+  DynamoDBDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt SupportChatAPI.ApiId
+      Name: SupportConversationsTable
+      Type: AMAZON_DYNAMODB
+      DynamoDBConfig:
+        AwsRegion: !Ref AWS::Region
+        TableName: !Sub 'support-conversations-${Environment}'
+      ServiceRoleArn: !GetAtt DynamoDBDataSourceRole.Arn
+
+  # Lambda Data Source for custom logic
+  LambdaDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt SupportChatAPI.ApiId
+      Name: SupportTicketLambda
+      Type: AWS_LAMBDA
+      LambdaConfig:
+        LambdaFunctionArn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:chatbot-support-ticket-${Environment}'
+      ServiceRoleArn: !GetAtt LambdaDataSourceRole.Arn
+
+  # DynamoDB Data Source Role
+  DynamoDBDataSourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/support-conversations-${Environment}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/support-conversations-${Environment}/index/*'
+
+  # Lambda Data Source Role
+  LambdaDataSourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:chatbot-support-ticket-${Environment}'
+
+  # Resolvers
+  SendMessageResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt SupportChatAPI.ApiId
+      TypeName: Mutation
+      FieldName: sendMessage
+      DataSourceName: !GetAtt DynamoDBDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "PutItem",
+          "key": {
+            "id": $util.dynamodb.toDynamoDBJson($util.autoId())
+          },
+          "attributeValues": {
+            "conversationId": $util.dynamodb.toDynamoDBJson($input.input.conversationId),
+            "sender": $util.dynamodb.toDynamoDBJson($input.input.sender),
+            "text": $util.dynamodb.toDynamoDBJson($input.input.message),
+            "timestamp": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601()),
+            "status": $util.dynamodb.toDynamoDBJson("sent")
+          }
+        }
+      ResponseMappingTemplate: |
+        {
+          "id": $util.toJson($context.result.id),
+          "conversationId": $util.toJson($context.result.conversationId),
+          "sender": $util.toJson($context.result.sender),
+          "text": $util.toJson($context.result.text),
+          "timestamp": $util.toJson($context.result.timestamp),
+          "status": $util.toJson($context.result.status)
+        }
+
+  GetConversationResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt SupportChatAPI.ApiId
+      TypeName: Query
+      FieldName: getConversation
+      DataSourceName: !GetAtt DynamoDBDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "GetItem",
+          "key": {
+            "conversationId": $util.dynamodb.toDynamoDBJson($input.conversationId)
+          }
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($context.result)
+
+Outputs:
+  GraphQLApiId:
+    Description: GraphQL API ID
+    Value: !GetAtt SupportChatAPI.ApiId
+    Export:
+      Name: !Sub '${Environment}-GraphQLApiId'
+
+  GraphQLApiEndpoint:
+    Description: GraphQL API Endpoint
+    Value: !GetAtt SupportChatAPI.GraphQLDns
+    Export:
+      Name: !Sub '${Environment}-GraphQLApiEndpoint'
+
+  GraphQLApiKey:
+    Description: GraphQL API Key
+    Value: !GetAtt SupportChatAPIKey.ApiKey
+    Export:
+      Name: !Sub '${Environment}-GraphQLApiKey'
+
+  GraphQLApiKeyExpiration:
+    Description: GraphQL API Key Expiration
+    Value: !GetAtt SupportChatAPIKey.Expires
+    Export:
+      Name: !Sub '${Environment}-GraphQLApiKeyExpiration'

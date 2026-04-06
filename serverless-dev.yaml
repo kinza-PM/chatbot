@@ -1,13 +1,6 @@
 service: al-rais-chatbot
 frameworkVersion: "3"
 
-custom:
-  serverlessSsmFetch:
-    COGNITO_CLIENT_ID: /provesio/cognitouserid~true
-    COGNITO_USERPOOL_ID: /provesio/cognitouserpoolid~true
-    OPENAI_API_KEY: /provesio/openaiApiKey~true
-    MAIN_ENDPOINT: /provesio/mainEndpoint
-
 provider:
   name: aws
   runtime: nodejs20.x
@@ -27,20 +20,23 @@ provider:
           Resource:
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
 
   environment:
     STAGE: ${self:provider.stage}
-    COGNITO_CLIENT_ID: ${self:custom.serverlessSsmFetch.COGNITO_CLIENT_ID}
-    COGNITO_USERPOOL_ID: ${self:custom.serverlessSsmFetch.COGNITO_USERPOOL_ID}
+    COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
+    COGNITO_USERPOOL_ID: ${env:COGNITO_USERPOOL_ID, ''}
     COGNITO_REGION: "eu-west-1"
-    OPENAI_API_KEY: ${self:custom.serverlessSsmFetch.OPENAI_API_KEY}
+    OPENAI_API_KEY: ${env:OPENAI_API_KEY, ''}
     OPENAI_MODEL: "gpt-4o"
     CONVERSATIONS_TABLE: chat-conversations-${self:provider.stage}
-    MAIN_ENDPOINT: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
-    FLIGHT_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
-    HOTEL_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
-    TRANSPORT_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
-    SUPPORT_API_BASE: ${self:custom.serverlessSsmFetch.MAIN_ENDPOINT}
+    SUPPORT_CONVERSATIONS_TABLE: support-conversations-${self:provider.stage}
+    MAIN_ENDPOINT: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
+    FLIGHT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
+    HOTEL_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
+    TRANSPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
+    SUPPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
 
 package:
   patterns:
@@ -116,6 +112,33 @@ functions:
               - Authorization
             allowCredentials: true
 
+  # Support Ticket Creation
+  supportTicket:
+    handler: handlers/supportTicket.handler
+    timeout: 30
+    memorySize: 512
+    events:
+      - http:
+          path: /support/ticket
+          method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
+  # AppSync Resolver
+  appSyncResolver:
+    handler: handlers/appSyncResolver.handler
+    timeout: 30
+    memorySize: 512
+    environment:
+      SUPPORT_CONVERSATIONS_TABLE: ${self:provider.environment.SUPPORT_CONVERSATIONS_TABLE}
+      SUPPORT_API_BASE: ${self:provider.environment.SUPPORT_API_BASE}
+
 resources:
   Resources:
 
@@ -150,5 +173,33 @@ resources:
           AttributeName: ttl
           Enabled: true
 
-plugins:
-  - serverless-ssm-fetch
+    SupportConversationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: support-conversations-${self:provider.stage}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: conversationId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: conversationId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIdIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+# AppSync deployment handled separately via CloudFormation
+# See appsync-config.yaml for AppSync infrastructure

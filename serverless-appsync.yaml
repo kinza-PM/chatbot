@@ -1,0 +1,83 @@
+service: al-rais-appsync
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: eu-west-1
+  stage: ${opt:stage, 'dev'}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource:
+            - arn:aws:lambda:eu-west-1:${aws:accountId}:function:al-rais-chatbot-${self:provider.stage}-appSyncResolver
+
+plugins:
+  - serverless-appsync-plugin
+
+custom:
+  appSync:
+    name: support-chat-api-${self:provider.stage}
+    authenticationType: API_KEY
+    apiKeyConfig:
+      description: API Key for support chat
+      expiresIn: 7
+    logConfig:
+      level: ERROR
+      roleArn: arn:aws:iam::${aws:accountId}:role/appsync-logs-role
+    schema: schema.graphql
+    dataSources:
+      - type: AMAZON_DYNAMODB
+        name: SupportConversationsTable
+        config:
+          tableName: support-conversations-${self:provider.stage}
+      - type: AWS_LAMBDA
+        name: AppSyncResolver
+        config:
+          functionName: al-rais-chatbot-${self:provider.stage}-appSyncResolver
+          iamRoleStatements:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - arn:aws:lambda:eu-west-1:${aws:accountId}:function:al-rais-chatbot-${self:provider.stage}-appSyncResolver
+    resolvers:
+      Query.getConversation:
+        dataSource: SupportConversationsTable
+        request: resolvers/Query.getConversation.request.vtl
+        response: resolvers/Query.getConversation.response.vtl
+      Mutation.sendMessage:
+        dataSource: AppSyncResolver
+        request: resolvers/Mutation.sendMessage.request.vtl
+        response: resolvers/Mutation.sendMessage.response.vtl
+      Mutation.updateConversationStatus:
+        dataSource: SupportConversationsTable
+        request: resolvers/Mutation.updateConversationStatus.request.vtl
+        response: resolvers/Mutation.updateConversationStatus.response.vtl
+
+resources:
+  Outputs:
+    GraphQLApiId:
+      Description: GraphQL API ID
+      Value: !GetAtt GraphQLAPI.ApiId
+    GraphQLApiEndpoint:
+      Description: GraphQL API Endpoint
+      Value: !GetAtt GraphQLAPI.GraphQLDns
+    GraphQLApiKey:
+      Description: GraphQL API Key
+      Value: !GetAtt GraphQLAPIKey.ApiKey
