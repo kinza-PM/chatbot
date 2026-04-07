@@ -17,11 +17,24 @@ provider:
             - dynamodb:GetItem
             - dynamodb:Query
             - dynamodb:DeleteItem
+            - dynamodb:Scan
           Resource:
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}
             - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
+        - Effect: Allow
+          Action:
+            - appsync:*
+          Resource:
+            - arn:aws:appsync:eu-west-1:${aws:accountId}:apis/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource:
+            - arn:aws:logs:eu-west-1:${aws:accountId}:log-group:/aws/appsync/*
 
   environment:
     STAGE: ${self:provider.stage}
@@ -36,7 +49,7 @@ provider:
     FLIGHT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     HOTEL_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     TRANSPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
-    SUPPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
+    SUPPORT_API_BASE: ${env:SUPPORT_API_BASE, 'https://roj8jj0e3h.execute-api.eu-west-1.amazonaws.com/dev'}
 
 package:
   patterns:
@@ -112,6 +125,24 @@ functions:
               - Authorization
             allowCredentials: true
 
+  # Get Categories
+  getCategories:
+    handler: handlers/getCategories.handler
+    timeout: 30
+    memorySize: 256
+    events:
+      - http:
+          path: /categories
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+
   # Support Ticket Creation
   supportTicket:
     handler: handlers/supportTicket.handler
@@ -121,6 +152,17 @@ functions:
       - http:
           path: /support/ticket
           method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - user_type
+              - user_id
+              - Authorization
+            allowCredentials: true
+      - http:
+          path: /support/ticket
+          method: options
           cors:
             origin: '*'
             headers:
@@ -201,5 +243,3 @@ resources:
           AttributeName: ttl
           Enabled: true
 
-# AppSync deployment handled separately via CloudFormation
-# See appsync-config.yaml for AppSync infrastructure

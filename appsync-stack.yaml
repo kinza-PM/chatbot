@@ -1,0 +1,252 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AppSync GraphQL API for real-time support chat'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment name
+
+Resources:
+  ###########################
+  ### AppSync API
+  ###########################
+  AppSyncAPI:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: !Sub 'support-chat-api-${Environment}'
+      AuthenticationType: API_KEY
+      LogConfig:
+        CloudWatchLogsRoleArn: !GetAtt AppSyncLogsRole.Arn
+        FieldLogLevel: ERROR
+
+  AppSyncAPIKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      Description: API Key for support chat
+
+  AppSyncSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      Definition: |
+        type Message {
+          id: ID!
+          conversationId: ID!
+          sender: String!
+          text: String!
+          timestamp: String!
+          status: String
+        }
+        type Conversation {
+          conversationId: ID!
+          userId: String
+          email: String!
+          name: String!
+          phone: String!
+          category: String
+          subcategory: String
+          messages: [Message!]!
+          ticketId: String
+          status: String!
+          createdAt: String!
+          updatedAt: String!
+        }
+        input SendMessageInput {
+          conversationId: ID!
+          message: String!
+          sender: String!
+        }
+        type Query {
+          getConversation(conversationId: ID!): Conversation
+        }
+        type Mutation {
+          sendMessage(input: SendMessageInput!): Message
+          updateConversationStatus(conversationId: ID!, status: String!): Conversation
+        }
+
+  ###########################
+  ### AppSync Data Sources
+  ###########################
+  DynamoDBDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      Name: SupportConversationsTable
+      Type: AMAZON_DYNAMODB
+      DynamoDBConfig:
+        AwsRegion: !Ref AWS::Region
+        TableName: !Sub 'support-conversations-${Environment}'
+      ServiceRoleArn: !GetAtt AppSyncDynamoDBRole.Arn
+
+  LambdaDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      Name: AppSyncResolver
+      Type: AWS_LAMBDA
+      LambdaConfig:
+        LambdaFunctionArn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:al-rais-chatbot-${Environment}-appSyncResolver'
+      ServiceRoleArn: !GetAtt AppSyncLambdaRole.Arn
+
+  ###########################
+  ### AppSync Resolvers
+  ###########################
+  GetConversationResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: AppSyncSchema
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      TypeName: Query
+      FieldName: getConversation
+      DataSourceName: !GetAtt DynamoDBDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "GetItem",
+          "key": {
+            "conversationId": $util.dynamodb.toDynamoDBJson($input.conversationId)
+          }
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($context.result)
+
+  SendMessageResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: AppSyncSchema
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      TypeName: Mutation
+      FieldName: sendMessage
+      DataSourceName: !GetAtt LambdaDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Invoke",
+          "payload": {
+            "typeName": "Mutation",
+            "fieldName": "sendMessage",
+            "arguments": $util.toJson($input),
+            "identity": $util.toJson($context.identity),
+            "source": $util.toJson($context.source),
+            "request": $util.toJson($context.request),
+            "prev": $util.toJson($context.prev)
+          }
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($context.result)
+
+  UpdateConversationStatusResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: AppSyncSchema
+    Properties:
+      ApiId: !GetAtt AppSyncAPI.ApiId
+      TypeName: Mutation
+      FieldName: updateConversationStatus
+      DataSourceName: !GetAtt DynamoDBDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "UpdateItem",
+          "key": {
+            "conversationId": $util.dynamodb.toDynamoDBJson($input.conversationId)
+          },
+          "update": {
+            "expression": "SET #status = :status, updatedAt = :updatedAt",
+            "expressionNames": {
+              "#status": "status"
+            },
+            "expressionValues": {
+              ":status": $util.dynamodb.toDynamoDBJson($input.status),
+              ":updatedAt": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601())
+            }
+          }
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($context.result)
+
+  ###########################
+  ### IAM Roles for AppSync
+  ###########################
+  AppSyncLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  AppSyncDynamoDBRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/support-conversations-${Environment}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/support-conversations-${Environment}/index/*'
+
+  AppSyncLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:al-rais-chatbot-${Environment}-appSyncResolver'
+
+Outputs:
+  GraphQLApiId:
+    Description: GraphQL API ID
+    Value: !GetAtt AppSyncAPI.ApiId
+    Export:
+      Name: !Sub 'AppSyncApiId-${Environment}'
+
+  GraphQLApiEndpoint:
+    Description: GraphQL API Endpoint
+    Value: !GetAtt AppSyncAPI.GraphQLDns
+    Export:
+      Name: !Sub 'AppSyncEndpoint-${Environment}'
+
+  GraphQLApiKey:
+    Description: GraphQL API Key
+    Value: !GetAtt AppSyncAPIKey.ApiKey
+    Export:
+      Name: !Sub 'AppSyncApiKey-${Environment}'
