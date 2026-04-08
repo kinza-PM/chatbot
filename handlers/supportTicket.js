@@ -105,15 +105,22 @@ export const handler = async (event) => {
 
         if (createTicket) {
             try {
+                // Parse phone number into contact object
+                const phoneMatch = phone.match(/^(\+?\d{1,4})\s*(.+)$/);
+                const contact = phoneMatch 
+                    ? { code: phoneMatch[1], number: phoneMatch[2].replace(/\s/g, '') }
+                    : { code: '+971', number: phone.replace(/\s/g, '') };
+
                 const ticketResponse = await createSupportTicket({
                     email,
                     name,
-                    phone,
-                    category,
-                    subcategory,
+                    contact,                    // ✅ Fixed: contact object instead of phone string
+                    reason: category,           // ✅ Fixed: reason instead of category
                     message: sanitizedMessage,
                     source: 'chatbot',
-                    conversationId
+                    conversationId,
+                    category,                   // Optional chatbot metadata
+                    subcategory                 // Optional chatbot metadata
                 });
 
                 if (ticketResponse.success) {
@@ -176,6 +183,8 @@ async function createSupportTicket(ticketData) {
     try {
         const endpoint = `${process.env.SUPPORT_API_BASE}/ticket`;
 
+        console.log("Creating ticket with data:", JSON.stringify(ticketData, null, 2));
+
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
@@ -185,11 +194,19 @@ async function createSupportTicket(ticketData) {
             body: JSON.stringify(ticketData)
         });
 
+        const result = await response.json();
+        
         if (!response.ok) {
-            throw new Error(`Failed to create ticket: ${response.statusText}`);
+            console.error("Ticket creation failed:", {
+                status: response.status,
+                statusText: response.statusText,
+                body: result
+            });
+            throw new Error(`Failed to create ticket: ${response.statusText} - ${result.message || JSON.stringify(result)}`);
         }
 
-        const result = await response.json();
+        console.log("Ticket created successfully:", result);
+        
         return {
             success: result.success,
             ticketId: result.data?.ticketId || result.ticketId

@@ -3,38 +3,32 @@ import { createResponse } from "../helper/helper.js";
 const DEFAULT_CATEGORIES = [
   {
     categoryId: "1",
-    categoryName: "Flight Booking",
-    description: "Issues related to flight bookings and reservations",
+    categoryName: "Booking Issues",
+    description: "Issues related to flight, hotel, or transport bookings",
     active: true
   },
   {
     categoryId: "2",
-    categoryName: "Hotel Reservation",
-    description: "Issues related to hotel bookings and accommodations",
+    categoryName: "Refund Request",
+    description: "Request for refund or cancellation",
     active: true
   },
   {
     categoryId: "3",
-    categoryName: "Airport Transfer",
-    description: "Issues related to airport transfers and car rentals",
+    categoryName: "Technical Support",
+    description: "Technical issues with the website or app",
     active: true
   },
   {
     categoryId: "4",
-    categoryName: "Booking Modification",
-    description: "Changes to existing bookings",
+    categoryName: "General Inquiry",
+    description: "General questions or inquiries",
     active: true
   },
   {
     categoryId: "5",
-    categoryName: "Cancellation",
-    description: "Cancellation requests and refunds",
-    active: true
-  },
-  {
-    categoryId: "6",
-    categoryName: "General Inquiry",
-    description: "General questions and inquiries",
+    categoryName: "Other",
+    description: "Other issues not listed above",
     active: true
   }
 ];
@@ -43,12 +37,42 @@ export const handler = async (event) => {
   console.log("Get Categories Event:", JSON.stringify(event, null, 2));
 
   try {
-    // Return default categories
-    // In a real implementation, you would fetch these from DynamoDB
-    return createResponse(200, {
-      success: true,
-      data: DEFAULT_CATEGORIES
+    // Fetch categories from MasterListing API
+    const endpoint = `${process.env.MASTERLISTING_API_BASE}/getListingData?tableName=ticket-reasons`;
+
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
+
+    if (response.ok) {
+      const result = await response.json();
+
+      if (result.items && Array.isArray(result.items)) {
+        // Transform reasons to category format
+        const categories = result.items
+          .filter(reason => reason.status === true)
+          .map(reason => ({
+            categoryId: reason.id,
+            categoryName: reason.reason,
+            description: `Support category: ${reason.reason}`,
+            active: reason.status
+          }));
+
+        return createResponse(200, {
+          success: true,
+          data: categories
+        });
+      }
+    }
+
+    return createResponse(500, {
+      success: false,
+      message: "Failed to fetch categories from database"
+    });
+
   } catch (error) {
     console.error("Error fetching categories:", error);
     return createResponse(500, {

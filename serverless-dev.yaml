@@ -6,6 +6,7 @@ provider:
   runtime: nodejs20.x
   region: eu-west-1
   stage: ${opt:stage, 'dev'}
+  versionFunctions: false
 
   iam:
     role:
@@ -50,7 +51,8 @@ provider:
     HOTEL_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     TRANSPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     SUPPORT_API_BASE: ${env:SUPPORT_API_BASE, 'https://roj8jj0e3h.execute-api.eu-west-1.amazonaws.com/dev'}
-
+    MASTERLISTING_API_BASE: ${env:MASTERLISTING_API_BASE, 'https://ie7eaxnxpg.execute-api.eu-west-1.amazonaws.com/dev'}
+    
 package:
   patterns:
     - '!./**'
