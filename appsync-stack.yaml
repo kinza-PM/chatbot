@@ -68,6 +68,12 @@ Resources:
           sendMessage(input: SendMessageInput!): Message
           updateConversationStatus(conversationId: ID!, status: String!): Conversation
         }
+        type Subscription {
+          onMessageReceived(conversationId: ID!): Message
+            @aws_subscribe(mutations: ["sendMessage"])
+          onConversationUpdated(conversationId: ID!): Conversation
+            @aws_subscribe(mutations: ["updateConversationStatus"])
+        }
 
   ###########################
   ### AppSync Data Sources
@@ -103,13 +109,19 @@ Resources:
       ApiId: !GetAtt AppSyncAPI.ApiId
       TypeName: Query
       FieldName: getConversation
-      DataSourceName: !GetAtt DynamoDBDataSource.Name
+      DataSourceName: !GetAtt LambdaDataSource.Name
       RequestMappingTemplate: |
         {
-          "version": "2017-02-28",
-          "operation": "GetItem",
-          "key": {
-            "conversationId": $util.dynamodb.toDynamoDBJson($input.conversationId)
+          "version": "2018-05-29",
+          "operation": "Invoke",
+          "payload": {
+            "typeName": "Query",
+            "fieldName": "getConversation",
+            "arguments": $util.toJson($context.arguments),
+            "identity": $util.toJson($context.identity),
+            "source": $util.toJson($context.source),
+            "request": $util.toJson($context.request),
+            "prev": $util.toJson($context.prev)
           }
         }
       ResponseMappingTemplate: |
@@ -130,7 +142,7 @@ Resources:
           "payload": {
             "typeName": "Mutation",
             "fieldName": "sendMessage",
-            "arguments": $util.toJson($input),
+            "arguments": $util.toJson($context.arguments),
             "identity": $util.toJson($context.identity),
             "source": $util.toJson($context.source),
             "request": $util.toJson($context.request),
@@ -147,23 +159,19 @@ Resources:
       ApiId: !GetAtt AppSyncAPI.ApiId
       TypeName: Mutation
       FieldName: updateConversationStatus
-      DataSourceName: !GetAtt DynamoDBDataSource.Name
+      DataSourceName: !GetAtt LambdaDataSource.Name
       RequestMappingTemplate: |
         {
-          "version": "2017-02-28",
-          "operation": "UpdateItem",
-          "key": {
-            "conversationId": $util.dynamodb.toDynamoDBJson($input.conversationId)
-          },
-          "update": {
-            "expression": "SET #status = :status, updatedAt = :updatedAt",
-            "expressionNames": {
-              "#status": "status"
-            },
-            "expressionValues": {
-              ":status": $util.dynamodb.toDynamoDBJson($input.status),
-              ":updatedAt": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601())
-            }
+          "version": "2018-05-29",
+          "operation": "Invoke",
+          "payload": {
+            "typeName": "Mutation",
+            "fieldName": "updateConversationStatus",
+            "arguments": $util.toJson($context.arguments),
+            "identity": $util.toJson($context.identity),
+            "source": $util.toJson($context.source),
+            "request": $util.toJson($context.request),
+            "prev": $util.toJson($context.prev)
           }
         }
       ResponseMappingTemplate: |

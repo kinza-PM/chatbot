@@ -162,17 +162,6 @@ functions:
               - user_id
               - Authorization
             allowCredentials: true
-      - http:
-          path: /support/ticket
-          method: options
-          cors:
-            origin: '*'
-            headers:
-              - Content-Type
-              - user_type
-              - user_id
-              - Authorization
-            allowCredentials: true
 
   # AppSync Resolver
   appSyncResolver:

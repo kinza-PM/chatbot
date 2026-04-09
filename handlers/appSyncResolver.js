@@ -79,6 +79,15 @@ async function getConversation(conversationId) {
         if (!conversation) {
             throw new Error("Conversation not found");
         }
+        
+        // Add conversationId to each message for GraphQL schema compliance
+        if (conversation.messages && Array.isArray(conversation.messages)) {
+            conversation.messages = conversation.messages.map(msg => ({
+                ...msg,
+                conversationId: conversationId
+            }));
+        }
+        
         return conversation;
     } catch (error) {
         console.error("Error getting conversation:", error);

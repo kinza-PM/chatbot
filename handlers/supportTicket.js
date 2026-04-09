@@ -189,7 +189,7 @@ async function createSupportTicket(ticketData) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.SUPPORT_API_KEY || ''}`
+                // 'Authorization': `Bearer ${process.env.SUPPORT_API_KEY || ''}`
             },
             body: JSON.stringify(ticketData)
         });
