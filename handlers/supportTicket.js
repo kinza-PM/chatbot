@@ -35,10 +35,10 @@ export const handler = async (event) => {
 
         // For new conversations, validate user info
         if (!existingConversationId) {
-            if (!email || !name || !phone || !category || !subcategory) {
+            if (!email || !name || !phone || !category) {
                 return createResponse(400, {
                     success: false,
-                    message: "Missing required fields: email, name, phone, category, subcategory"
+                    message: "Missing required fields: email, name, phone, category"
                 });
             }
         }
