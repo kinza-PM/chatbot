@@ -61,18 +61,56 @@ Resources:
           message: String!
           sender: String!
         }
+        
+        # Ticket Event Types
+        type TicketCreatedEvent {
+          ticketId: ID!
+          name: String!
+          email: String!
+          reason: String!
+          status: String!
+          createdAt: String!
+        }
+        
+        type TicketUpdatedEvent {
+          ticketId: ID!
+          changes: String!
+          updatedAt: String!
+        }
+        
+        input TicketCreatedInput {
+          ticketId: String!
+          name: String!
+          email: String!
+          reason: String!
+          status: String!
+          createdAt: String!
+        }
+        
+        input TicketUpdatedInput {
+          ticketId: String!
+          changes: String!
+          updatedAt: String!
+        }
+        
         type Query {
           getConversation(conversationId: ID!): Conversation
         }
         type Mutation {
           sendMessage(input: SendMessageInput!): Message
           updateConversationStatus(conversationId: ID!, status: String!): Conversation
+          publishTicketCreated(input: TicketCreatedInput!): TicketCreatedEvent
+          publishTicketUpdated(input: TicketUpdatedInput!): TicketUpdatedEvent
         }
         type Subscription {
           onMessageReceived(conversationId: ID!): Message
             @aws_subscribe(mutations: ["sendMessage"])
-          onConversationUpdated(conversationId: ID!): Conversation
+          onConversationStatusChanged(conversationId: ID!): Conversation
             @aws_subscribe(mutations: ["updateConversationStatus"])
+          onTicketCreated: TicketCreatedEvent
+            @aws_subscribe(mutations: ["publishTicketCreated"])
+          onTicketUpdated: TicketUpdatedEvent
+            @aws_subscribe(mutations: ["publishTicketUpdated"])
         }
 
   ###########################
@@ -98,6 +136,123 @@ Resources:
       LambdaConfig:
         LambdaFunctionArn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:al-rais-chatbot-${Environment}-appSyncResolver'
       ServiceRoleArn: !GetAtt AppSyncLambdaRole.Arn
+
+  ###########################
+  ### Ticket Events AppSync API
+  ###########################
+  TicketEventsApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: ticket-events-api-${Environment}
+      AuthenticationType: API_KEY
+      ApiKeyConfig:
+        Description: API Key for ticket events
+        Expires: 365
+
+  TicketEventsApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt TicketEventsApi.ApiId
+      Description: API Key for ticket events
+
+  TicketEventsSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt TicketEventsApi.ApiId
+      Definition: |
+        type Query {
+          dummy: String
+        }
+
+        type Mutation {
+          publishTicketCreated(input: TicketCreatedInput!): TicketCreatedEvent
+          publishTicketUpdated(input: TicketUpdatedInput!): TicketUpdatedEvent
+        }
+
+        type Subscription {
+          onTicketCreated: TicketCreatedEvent
+            @aws_subscribe(mutations: ["publishTicketCreated"])
+          onTicketUpdated: TicketUpdatedEvent
+            @aws_subscribe(mutations: ["publishTicketUpdated"])
+        }
+
+        input TicketCreatedInput {
+          ticketId: String!
+          name: String!
+          email: String!
+          reason: String!
+          status: String!
+          createdAt: String!
+        }
+
+        type TicketCreatedEvent {
+          ticketId: String!
+          name: String!
+          email: String!
+          reason: String!
+          status: String!
+          createdAt: String!
+        }
+
+        input TicketUpdatedInput {
+          ticketId: String!
+          changes: String!
+          updatedAt: String!
+        }
+
+        type TicketUpdatedEvent {
+          ticketId: String!
+          changes: String!
+          updatedAt: String!
+        }
+
+  TicketCreatedDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt TicketEventsApi.ApiId
+      Name: TicketCreatedDataSource
+      Type: NONE
+
+  TicketUpdatedDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt TicketEventsApi.ApiId
+      Name: TicketUpdatedDataSource
+      Type: NONE
+
+  PublishTicketCreatedResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: TicketEventsSchema
+    Properties:
+      ApiId: !GetAtt TicketEventsApi.ApiId
+      TypeName: Mutation
+      FieldName: publishTicketCreated
+      DataSourceName: !GetAtt TicketCreatedDataSource.Name
+      Kind: UNIT
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "payload": $util.toJson($input)
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($payload)
+
+  PublishTicketUpdatedResolver:
+    Type: AWS::AppSync::Resolver
+    DependsOn: TicketEventsSchema
+    Properties:
+      ApiId: !GetAtt TicketEventsApi.ApiId
+      TypeName: Mutation
+      FieldName: publishTicketUpdated
+      DataSourceName: !GetAtt TicketUpdatedDataSource.Name
+      Kind: UNIT
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "payload": $util.toJson($input)
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($payload)
 
   ###########################
   ### AppSync Resolvers
@@ -258,3 +413,15 @@ Outputs:
     Value: !GetAtt AppSyncAPIKey.ApiKey
     Export:
       Name: !Sub 'AppSyncApiKey-${Environment}'
+
+  TicketEventsApiEndpoint:
+    Description: Ticket Events AppSync GraphQL Endpoint
+    Value: !Sub 'https://${TicketEventsApi.GraphQLEndpoint}'
+    Export:
+      Name: !Sub 'TicketEventsApiEndpoint-${Environment}'
+
+  TicketEventsApiKey:
+    Description: API Key for Ticket Events AppSync API
+    Value: !GetAtt TicketEventsApiKey.ApiKey
+    Export:
+      Name: !Sub 'TicketEventsApiKey-${Environment}'

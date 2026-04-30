@@ -20,28 +20,28 @@ provider:
             - dynamodb:DeleteItem
             - dynamodb:Scan
           Resource:
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/support-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
         - Effect: Allow
           Action:
             - appsync:*
           Resource:
-            - arn:aws:appsync:eu-west-1:${aws:accountId}:apis/*
+            - arn:aws:appsync:${aws:region}:${aws:accountId}:apis/*
         - Effect: Allow
           Action:
             - logs:CreateLogGroup
             - logs:CreateLogStream
             - logs:PutLogEvents
           Resource:
-            - arn:aws:logs:eu-west-1:${aws:accountId}:log-group:/aws/appsync/*
+            - arn:aws:logs:${aws:region}:${aws:accountId}:log-group:/aws/appsync/*
 
   environment:
     STAGE: ${self:provider.stage}
     COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
     COGNITO_USERPOOL_ID: ${env:COGNITO_USERPOOL_ID, ''}
-    COGNITO_REGION: "eu-west-1"
+    COGNITO_REGION: "${aws:region}"
     OPENAI_API_KEY: ${env:OPENAI_API_KEY, ''}
     OPENAI_MODEL: "gpt-4o"
     CONVERSATIONS_TABLE: chat-conversations-${self:provider.stage}
@@ -50,8 +50,8 @@ provider:
     FLIGHT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     HOTEL_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     TRANSPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
-    SUPPORT_API_BASE: ${env:SUPPORT_API_BASE, 'https://roj8jj0e3h.execute-api.eu-west-1.amazonaws.com/dev'}
-    MASTERLISTING_API_BASE: ${env:MASTERLISTING_API_BASE, 'https://ie7eaxnxpg.execute-api.eu-west-1.amazonaws.com/dev'}
+    SUPPORT_API_BASE: ${env:SUPPORT_API_BASE, 'https://roj8jj0e3h.execute-api.${aws:region}.amazonaws.com/dev'}
+    MASTERLISTING_API_BASE: ${env:MASTERLISTING_API_BASE, 'https://ie7eaxnxpg.execute-api.${aws:region}.amazonaws.com/dev'}
     
 package:
   patterns:
