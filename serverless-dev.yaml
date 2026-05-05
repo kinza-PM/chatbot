@@ -20,22 +20,10 @@ provider:
             - dynamodb:DeleteItem
             - dynamodb:Scan
           Resource:
-            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}
-            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
-            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/support-conversations-${self:provider.stage}
-            - arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
-        - Effect: Allow
-          Action:
-            - appsync:*
-          Resource:
-            - arn:aws:appsync:${aws:region}:${aws:accountId}:apis/*
-        - Effect: Allow
-          Action:
-            - logs:CreateLogGroup
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-          Resource:
-            - arn:aws:logs:${aws:region}:${aws:accountId}:log-group:/aws/appsync/*
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/support-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
 
   environment:
     STAGE: ${self:provider.stage}
@@ -172,8 +160,84 @@ functions:
       SUPPORT_CONVERSATIONS_TABLE: ${self:provider.environment.SUPPORT_CONVERSATIONS_TABLE}
       SUPPORT_API_BASE: ${self:provider.environment.SUPPORT_API_BASE}
 
+plugins:
+  - serverless-dotenv-plugin
+  - serverless-appsync-plugin
+  - serverless-offline
+
+appSync:
+  name: support-chat-api-${self:provider.stage}
+  authenticationType: API_KEY
+  apiKeys:
+    - name: default
+      description: Default API Key for support chat
+      expiresAfter: 365d
+  
+  schema: schema.graphql
+  
+  dataSources:
+    - type: AMAZON_DYNAMODB
+      name: SupportConversationsTable
+      description: Support Conversations DynamoDB Table
+      config:
+        tableName: support-conversations-${self:provider.stage}
+    
+    - type: AWS_LAMBDA
+      name: AppSyncResolverLambda
+      description: Lambda function for AppSync resolvers
+      config:
+        functionArn:
+          Fn::GetAtt:
+            - AppSyncResolverLambdaFunction
+            - Arn
+  
+  resolvers:
+    # Query Resolvers
+    - type: Query
+      field: getConversation
+      dataSource: SupportConversationsTable
+      request: resolvers/Query.getConversation.request.vtl
+      response: resolvers/Query.getConversation.response.vtl
+    
+    # Mutation Resolvers
+    - type: Mutation
+      field: sendMessage
+      dataSource: AppSyncResolverLambda
+      request: resolvers/Mutation.sendMessage.request.vtl
+      response: resolvers/Mutation.sendMessage.response.vtl
+    
+    - type: Mutation
+      field: updateConversationStatus
+      dataSource: SupportConversationsTable
+      request: resolvers/Mutation.updateConversationStatus.request.vtl
+      response: resolvers/Mutation.updateConversationStatus.response.vtl
+  
+  logConfig:
+    loggingRoleArn:
+      Fn::GetAtt:
+        - AppSyncLoggingRole
+        - Arn
+    level: ERROR
+    excludeVerboseContent: false
+
 resources:
   Resources:
+
+    ###########################
+    ### AppSync IAM Role
+    ###########################
+    AppSyncLoggingRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: appsync.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSAppSyncPushToCloudWatchLogs
 
     ###########################
     ### DynamoDB Tables
