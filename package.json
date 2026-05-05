@@ -15,6 +15,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "serverless-appsync-plugin": "^2.10.5",
     "serverless-offline": "^13.9.0",
     "serverless-ssm-fetch": "^2.0.0"
   },

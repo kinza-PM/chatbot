@@ -12,9 +12,9 @@ type Mutation {
 
 type Subscription {
   onMessageReceived(conversationId: ID!): Message
-    @aws_subscribe(rules: [{ allow: public }])
+    @aws_subscribe(mutations: ["sendMessage"])
   onConversationUpdated(conversationId: ID!): Conversation
-    @aws_subscribe(rules: [{ allow: public }])
+    @aws_subscribe(mutations: ["updateConversationStatus"])
 }
 
 type Message {

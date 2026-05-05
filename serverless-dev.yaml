@@ -20,28 +20,16 @@ provider:
             - dynamodb:DeleteItem
             - dynamodb:Scan
           Resource:
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}
-            - arn:aws:dynamodb:eu-west-1:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
-        - Effect: Allow
-          Action:
-            - appsync:*
-          Resource:
-            - arn:aws:appsync:eu-west-1:${aws:accountId}:apis/*
-        - Effect: Allow
-          Action:
-            - logs:CreateLogGroup
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-          Resource:
-            - arn:aws:logs:eu-west-1:${aws:accountId}:log-group:/aws/appsync/*
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/chat-conversations-${self:provider.stage}/index/*
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/support-conversations-${self:provider.stage}
+            - arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/support-conversations-${self:provider.stage}/index/*
 
   environment:
     STAGE: ${self:provider.stage}
     COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
     COGNITO_USERPOOL_ID: ${env:COGNITO_USERPOOL_ID, ''}
-    COGNITO_REGION: "eu-west-1"
+    COGNITO_REGION: "${aws:region}"
     OPENAI_API_KEY: ${env:OPENAI_API_KEY, ''}
     OPENAI_MODEL: "gpt-4o"
     CONVERSATIONS_TABLE: chat-conversations-${self:provider.stage}
@@ -50,8 +38,8 @@ provider:
     FLIGHT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     HOTEL_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
     TRANSPORT_API_BASE: ${env:MAIN_ENDPOINT, 'http://localhost:3000'}
-    SUPPORT_API_BASE: ${env:SUPPORT_API_BASE, 'https://roj8jj0e3h.execute-api.eu-west-1.amazonaws.com/dev'}
-    MASTERLISTING_API_BASE: ${env:MASTERLISTING_API_BASE, 'https://ie7eaxnxpg.execute-api.eu-west-1.amazonaws.com/dev'}
+    SUPPORT_API_BASE: ${env:SUPPORT_API_BASE, 'https://roj8jj0e3h.execute-api.${aws:region}.amazonaws.com/dev'}
+    MASTERLISTING_API_BASE: ${env:MASTERLISTING_API_BASE, 'https://ie7eaxnxpg.execute-api.${aws:region}.amazonaws.com/dev'}
     
 package:
   patterns:
@@ -172,8 +160,84 @@ functions:
       SUPPORT_CONVERSATIONS_TABLE: ${self:provider.environment.SUPPORT_CONVERSATIONS_TABLE}
       SUPPORT_API_BASE: ${self:provider.environment.SUPPORT_API_BASE}
 
+plugins:
+  - serverless-dotenv-plugin
+  - serverless-appsync-plugin
+  - serverless-offline
+
+appSync:
+  name: support-chat-api-${self:provider.stage}
+  authenticationType: API_KEY
+  apiKeys:
+    - name: default
+      description: Default API Key for support chat
+      expiresAfter: 365d
+  
+  schema: schema.graphql
+  
+  dataSources:
+    - type: AMAZON_DYNAMODB
+      name: SupportConversationsTable
+      description: Support Conversations DynamoDB Table
+      config:
+        tableName: support-conversations-${self:provider.stage}
+    
+    - type: AWS_LAMBDA
+      name: AppSyncResolverLambda
+      description: Lambda function for AppSync resolvers
+      config:
+        functionArn:
+          Fn::GetAtt:
+            - AppSyncResolverLambdaFunction
+            - Arn
+  
+  resolvers:
+    # Query Resolvers
+    - type: Query
+      field: getConversation
+      dataSource: SupportConversationsTable
+      request: resolvers/Query.getConversation.request.vtl
+      response: resolvers/Query.getConversation.response.vtl
+    
+    # Mutation Resolvers
+    - type: Mutation
+      field: sendMessage
+      dataSource: AppSyncResolverLambda
+      request: resolvers/Mutation.sendMessage.request.vtl
+      response: resolvers/Mutation.sendMessage.response.vtl
+    
+    - type: Mutation
+      field: updateConversationStatus
+      dataSource: SupportConversationsTable
+      request: resolvers/Mutation.updateConversationStatus.request.vtl
+      response: resolvers/Mutation.updateConversationStatus.response.vtl
+  
+  logConfig:
+    loggingRoleArn:
+      Fn::GetAtt:
+        - AppSyncLoggingRole
+        - Arn
+    level: ERROR
+    excludeVerboseContent: false
+
 resources:
   Resources:
+
+    ###########################
+    ### AppSync IAM Role
+    ###########################
+    AppSyncLoggingRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: appsync.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSAppSyncPushToCloudWatchLogs
 
     ###########################
     ### DynamoDB Tables
